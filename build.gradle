@@ -1,0 +1,20 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'com.example'
+version = '0.1.0'
+
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
+application { mainClass = 'com.example.dummy.Application' }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+jar { manifest { attributes 'Main-Class': application.mainClass.get() } }
+
+// 외부 테스트 라이브러리 없이 실제 HTTP 요청으로 검증합니다.
+tasks.register('integrationTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.example.dummy.ApiIntegrationTest'
+}
+check.dependsOn integrationTest
