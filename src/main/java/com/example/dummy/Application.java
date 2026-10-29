@@ -15,6 +15,7 @@ public final class Application {
 
     public static void main(String[] args) throws IOException {
         System.out.println("별 내용은 없고 그냥 출력하는 프로그램");
+        System.out.println("더 커밋해야해서 만드는 2번째 줄");
     }
 
 }
