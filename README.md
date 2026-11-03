@@ -101,6 +101,20 @@ gh run list --workflow ci.yml
 
 참고: [Gradle 8.14.3](https://docs.gradle.org/8.14.3/release-notes.html), [GitHub Docker 이미지 발행](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images).
 
+## 7. Demo ALM pipeline
+
+`.github/workflows/demo-pipeline.yml`은 Actions 화면에서 잡 의존성과 성공·실패 분기를 관찰하기 위한 7개 잡짜리 데모입니다. push 또는 **Actions → Demo ALM pipeline → Run workflow**로 실행합니다.
+
+```text
+Prepare → HW metadata → Requirement trace → Build
+                                         ├─ 성공 → Process success ───┐
+                                         └─ 실패 → Handle build failure ├→ Finalize report
+```
+
+Build는 기본적으로 4분의 1 확률로 일부러 실패합니다. 수동 실행할 때 `build_outcome`을 `success` 또는 `failure`로 바꾸면 각 분기를 확정해서 볼 수 있습니다. `hw_revision`, `requirement_id`도 수동 입력할 수 있습니다. push에서는 기본값을 사용합니다.
+
+Build 잡은 먼저 `hello.txt`를 Artifact에 올린 뒤 결과를 결정하므로 실패한 실행에도 파일이 남습니다. 실패 시 Build 잡의 오류 annotation, 실패 처리 잡의 경고 annotation, Finalize의 Summary 보고서를 확인하세요. 성공 경로에서는 Process가 Artifact를 내려받습니다. 의도적인 실패 시 전체 실행 상태가 빨간색인 것은 정상입니다. 이 데모는 실제 HW/요구사항 시스템이나 배포 대상에 기록하지 않습니다.
+
 ## 검증 결과
 
 Docker에서 `clean build`와 HTTP 통합 테스트를 통과했고, 최종 이미지에서도 상태 API·메시지 API·서명 웹훅을 호출해 확인했습니다. 현재 Windows 실행 환경에서는 Java의 `Unable to establish loopback connection` 오류로 직접 Gradle 실행이 막혔습니다. 같은 오류가 발생하면 Docker 실행 방법을 사용하세요. GitHub Actions 및 GHCR 발행은 저장소에 push한 뒤 확인해야 합니다.

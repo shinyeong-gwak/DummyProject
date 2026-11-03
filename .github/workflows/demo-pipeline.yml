@@ -1,0 +1,178 @@
+name: Demo ALM pipeline
+run-name: Demo ALM pipeline · ${{ github.event_name }} · ${{ github.ref_name }}
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      build_outcome:
+        description: 'Build result for demo runs'
+        type: choice
+        options:
+          - random
+          - success
+          - failure
+        default: random
+      hw_revision:
+        description: 'Hardware revision shown in the report'
+        type: string
+        default: HW-REV-A
+      requirement_id:
+        description: 'Requirement ID shown in the report'
+        type: string
+        default: REQ-DEMO-001
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: 01 · Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      demo_id: ${{ steps.context.outputs.demo_id }}
+    steps:
+      - id: context
+        name: Create demo context
+        run: |
+          echo "demo_id=DEMO-${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Preparing::Demo run DEMO-${GITHUB_RUN_ID} is starting."
+          echo "### Preparation" >> "$GITHUB_STEP_SUMMARY"
+          echo "Run ID: DEMO-${GITHUB_RUN_ID}" >> "$GITHUB_STEP_SUMMARY"
+
+  hw_metadata:
+    name: 02 · HW metadata
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.metadata.outputs.revision }}
+    env:
+      REQUESTED_HW_REVISION: ${{ inputs.hw_revision || 'HW-REV-A' }}
+    steps:
+      - id: metadata
+        name: Record hardware revision
+        run: |
+          echo "revision=$REQUESTED_HW_REVISION" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Hardware metadata::Revision $REQUESTED_HW_REVISION is linked to this run."
+
+  requirement_trace:
+    name: 03 · Requirement trace
+    needs: [prepare, hw_metadata]
+    runs-on: ubuntu-latest
+    outputs:
+      requirement_id: ${{ steps.trace.outputs.requirement_id }}
+    env:
+      REQUESTED_REQUIREMENT_ID: ${{ inputs.requirement_id || 'REQ-DEMO-001' }}
+      HW_REVISION: ${{ needs.hw_metadata.outputs.revision }}
+    steps:
+      - id: trace
+        name: Link requirement to hardware
+        run: |
+          echo "requirement_id=$REQUESTED_REQUIREMENT_ID" >> "$GITHUB_OUTPUT"
+          echo "::notice title=Requirement trace::$REQUESTED_REQUIREMENT_ID is associated with $HW_REVISION."
+
+  build:
+    name: 04 · Build (25% simulated failure)
+    needs: [prepare, hw_metadata, requirement_trace]
+    runs-on: ubuntu-latest
+    env:
+      REQUESTED_OUTCOME: ${{ inputs.build_outcome || 'random' }}
+      DEMO_ID: ${{ needs.prepare.outputs.demo_id }}
+      HW_REVISION: ${{ needs.hw_metadata.outputs.revision }}
+      REQUIREMENT_ID: ${{ needs.requirement_trace.outputs.requirement_id }}
+    steps:
+      - name: Create demo artifact
+        run: |
+          printf 'hello from %s\nrequirement=%s\nhardware=%s\ncommit=%s\n' \
+            "$DEMO_ID" "$REQUIREMENT_ID" "$HW_REVISION" "$GITHUB_SHA" > hello.txt
+          echo "::notice title=Build artifact::hello.txt was created."
+      - name: Upload hello.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello-${{ github.run_id }}
+          path: hello.txt
+          if-no-files-found: error
+      - name: Simulate build result
+        shell: bash
+        run: |
+          roll=$(od -An -N4 -tu4 /dev/urandom | tr -d ' ')
+          bucket=$((roll % 4))
+          echo "Requested outcome: $REQUESTED_OUTCOME; random bucket: $bucket/4"
+          if [[ "$REQUESTED_OUTCOME" == failure || ( "$REQUESTED_OUTCOME" == random && "$bucket" -eq 0 ) ]]; then
+            echo "::error title=Simulated build failure::Build failed for $DEMO_ID (demo only)."
+            exit 1
+          fi
+          echo "::notice title=Build complete::Artifact hello.txt is available."
+
+  process:
+    name: 05 · Process success
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: hello-${{ github.run_id }}
+      - name: Process demo result
+        run: |
+          echo "::notice title=Processing::Build succeeded; hello.txt was retrieved."
+          cat hello.txt
+
+  build_failed:
+    name: 06 · Handle build failure
+    needs: build
+    if: ${{ !cancelled() && needs.build.result == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Annotate failure
+        run: |
+          echo "::warning title=Build failure handled::The simulated failure path ran. Inspect the Build job for its error annotation."
+          echo "Failure handling completed for run $GITHUB_RUN_ID."
+
+  finalize:
+    name: 07 · Finalize report
+    needs: [prepare, hw_metadata, requirement_trace, build, process, build_failed]
+    if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: ubuntu-latest
+    env:
+      DEMO_ID: ${{ needs.prepare.outputs.demo_id }}
+      HW_REVISION: ${{ needs.hw_metadata.outputs.revision }}
+      REQUIREMENT_ID: ${{ needs.requirement_trace.outputs.requirement_id }}
+      PREPARE_RESULT: ${{ needs.prepare.result }}
+      HW_RESULT: ${{ needs.hw_metadata.result }}
+      TRACE_RESULT: ${{ needs.requirement_trace.result }}
+      BUILD_RESULT: ${{ needs.build.result }}
+      PROCESS_RESULT: ${{ needs.process.result }}
+      FAILURE_RESULT: ${{ needs.build_failed.result }}
+    steps:
+      - name: Publish run summary
+        shell: bash
+        run: |
+          if [[ "$BUILD_RESULT" == success ]]; then
+            outcome='✅ Success path'
+          else
+            outcome='❌ Failure path (simulated)'
+          fi
+          {
+            echo '# Demo ALM pipeline report'
+            echo
+            echo "**Run:** $DEMO_ID"
+            echo "**Outcome:** $outcome"
+            echo "**Commit:** \`$GITHUB_SHA\`"
+            echo "**HW revision:** $HW_REVISION"
+            echo "**Requirement:** $REQUIREMENT_ID"
+            echo
+            echo '| Job | Result |'
+            echo '| --- | --- |'
+            echo "| Prepare | $PREPARE_RESULT |"
+            echo "| HW metadata | $HW_RESULT |"
+            echo "| Requirement trace | $TRACE_RESULT |"
+            echo "| Build | $BUILD_RESULT |"
+            echo "| Process | $PROCESS_RESULT |"
+            echo "| Failure handler | $FAILURE_RESULT |"
+            echo "| Finalize | success |"
+            echo
+            echo "Artifact: \`hello.txt\` (attached to the Build job)."
+            echo 'This is a demo run; no deployment or ALM write was performed.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::notice title=Finalized::The run report is available in the workflow summary."
