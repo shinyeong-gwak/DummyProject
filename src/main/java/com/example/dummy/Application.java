@@ -14,10 +14,9 @@ import java.util.concurrent.Executors;
 public final class Application {
 
     public static void main(String[] args) throws IOException {
-        System.out.println("별 내용은 없고 그냥 출력하는 프로그램");
-        System.out.println("더 커밋해야해서 만드는 2번째 줄");
+        System.out.println("출력하는 프로그램");
         System.out.println("자동화테스트");
-        System.out.println("변f경완료");
+        System.out.println("변경완료");
     }
 
 }
